@@ -27,11 +27,70 @@ class CacheTestCase(unittest.TestCase):
         self.cache.put('baz', 'qux', -1)
         self.assertEqual(self.cache.get('baz'), None)
 
+    def test_context_with_empty_cache(self):
+        with self.cache.cache_for('foo') as foo_cache:
+            self.assertEqual(None, foo_cache.value)
+            foo_cache.value = 'bar'
+            foo_cache.duration = 60
+        self.assertEqual('bar', self.cache.get('foo'))
+
+    def test_context_with_cache_value_set(self):
+        with self.cache.cache_for('foo') as foo_cache:
+            self.assertEqual(None, foo_cache.value)
+            foo_cache.value = 'baz'
+            foo_cache.duration = 60
+        self.assertEqual('baz', self.cache.get('foo'))
+
+    def test_context_with_cache_for_fail_sync(self):
+        with self.cache.cache_for('foo') as foo_cache:
+            self.assertEqual(None, foo_cache.value)
+            # forget to set new value
+            foo_cache.duration = 60
+        self.assertEqual(None, self.cache.get('foo'))
+
+        with self.cache.cache_for('foo') as foo_cache:
+            self.assertEqual(None, foo_cache.value)
+            foo_cache.value = 'baz'
+            # forget to set duration
+        self.assertEqual(None, self.cache.get('foo'))
+
+    def test_context_with_exception(self):
+        try:
+            with self.cache.cache_for('foo') as foo_cache:
+                self.assertEqual(None, foo_cache.value)
+                foo_cache.value = 'bar'
+                foo_cache.duration = 60
+                raise RuntimeError('baz')
+        except RuntimeError:
+            pass
+        self.assertEqual(None, self.cache.get('foo'))
+
+    def test_context_with_APIError(self):
+        try:
+            with self.cache.cache_for('foo') as foo_cache:
+                self.assertEqual(None, foo_cache.value)
+                foo_cache.value = 'bar'
+                foo_cache.duration = -1
+                raise evelink_api.APIError(timestamp=0, expires=60)
+        except evelink_api.APIError:
+            pass
+        self.assertEqual('bar', self.cache.get('foo'))
+
+    def test_context_with_no_duration_in_APIError(self):
+        try:
+            with self.cache.cache_for('foo') as foo_cache:
+                self.assertEqual(None, foo_cache.value)
+                foo_cache.value = 'bar'
+                raise evelink_api.APIError()
+        except evelink_api.APIError:
+            pass 
+        self.assertEqual(None, self.cache.get('foo'))
+
+
 class APITestCase(unittest.TestCase):
 
     def setUp(self):
-        self.cache = mock.MagicMock(spec=evelink_api.APICache)
-        self.api = evelink_api.API(cache=self.cache)
+        self.api = evelink_api.API()
         # force disable requests if enabled.
         self.api.Request = evelink_api.APIRequest
 
@@ -102,7 +161,6 @@ class APITestCase(unittest.TestCase):
         # mock up an urlopen compatible response object and pretend to have no
         # cached results; similar pattern for all test_get_* methods below.
         mock_urlopen.return_value = StringIO(self.test_xml)
-        self.cache.get.return_value = None
 
         result = self.api.get('foo/Bar', {'a':[1,2,3]})
 
@@ -126,9 +184,10 @@ class APITestCase(unittest.TestCase):
         # mock up a urlopen compatible error response, and pretend to have a
         # good test response cached.
         mock_urlopen.return_value = StringIO(self.error_xml)
-        self.cache.get.return_value = self.test_xml
-
-        result = self.api.get('foo/Bar', {'a':[1,2,3]})
+        
+        with mock.patch.object(self.api.cache, 'get') as cache_get:
+            cache_get.return_value = self.test_xml
+            result = self.api.get('foo/Bar', {'a':[1,2,3]})
 
         # Ensure this is really not called.
         self.assertFalse(mock_urlopen.called)
@@ -152,7 +211,6 @@ class APITestCase(unittest.TestCase):
     @mock.patch('urllib2.urlopen')
     def test_get_with_apikey(self, mock_urlopen):
         mock_urlopen.return_value = StringIO(self.test_xml)
-        self.cache.get.return_value = None
 
         self.api.api_key = (1, 'code')
 
@@ -173,7 +231,6 @@ class APITestCase(unittest.TestCase):
         # dict is the headers object.
         mock_urlopen.return_value = urllib2.HTTPError(
             "http://api.eveonline.com/eve/Error", 404, "Not found!", {}, StringIO(self.error_xml))
-        self.cache.get.return_value = None
 
         self.assertRaises(evelink_api.APIError,
             self.api.get, 'eve/Error')
@@ -187,10 +244,11 @@ class APITestCase(unittest.TestCase):
         """Make sure that we don't try to call the API if the result is cached."""
         # mocked response is good now, with the error response cached.
         mock_urlopen.return_value = StringIO(self.test_xml)
-        self.cache.get.return_value = self.error_xml
 
-        self.assertRaises(evelink_api.APIError,
-            self.api.get, 'foo/Bar', {'a':[1,2,3]})
+        with mock.patch.object(self.api.cache, 'get') as cache_get:
+            cache_get.return_value = self.error_xml
+            self.assertRaises(evelink_api.APIError,
+                self.api.get, 'foo/Bar', {'a':[1,2,3]})
 
         self.assertFalse(mock_urlopen.called)
         self.assertEqual(self.api.last_timestamps, {

@@ -14,8 +14,7 @@ class DummyResponse(object):
 class RequestsAPITestCase(unittest.TestCase):
 
     def setUp(self):
-        self.cache = mock.MagicMock(spec=evelink_api.APICache)
-        self.api = evelink_api.API(cache=self.cache)
+        self.api = evelink_api.API()
 
         self.test_xml = r"""
                 <?xml version='1.0' encoding='UTF-8'?>
@@ -55,7 +54,6 @@ class RequestsAPITestCase(unittest.TestCase):
         # mock up a sessions compatible response object and pretend to have
         # nothing chached; similar pattern below for all test_get_* methods
         self.mock_sessions.post.return_value = DummyResponse(self.test_xml)
-        self.cache.get.return_value = None
 
         tree, current, expires = self.api.get('foo/Bar', {'a':[1,2,3]})
 
@@ -75,9 +73,10 @@ class RequestsAPITestCase(unittest.TestCase):
         # mock up a sessions compatible error response, and pretend to have a
         # good test response cached.
         self.mock_sessions.post.return_value = DummyResponse(self.error_xml)
-        self.cache.get.return_value = self.test_xml
 
-        result, current, expires = self.api.get('foo/Bar', {'a':[1,2,3]})
+        with mock.patch.object(self.api.cache, 'get') as cache_get:
+            cache_get.return_value = self.test_xml
+            result, current, expires = self.api.get('foo/Bar', {'a':[1,2,3]})
 
         rowset = result.find('rowset')
         rows = rowset.findall('row')
@@ -95,7 +94,6 @@ class RequestsAPITestCase(unittest.TestCase):
 
     def test_get_with_apikey(self):
         self.mock_sessions.post.return_value = DummyResponse(self.test_xml)
-        self.cache.get.return_value = None
 
         self.api.api_key = (1, 'code')
 
@@ -111,7 +109,6 @@ class RequestsAPITestCase(unittest.TestCase):
 
     def test_get_with_error(self):
         self.mock_sessions.get.return_value = DummyResponse(self.error_xml)
-        self.cache.get.return_value = None
 
         self.assertRaises(evelink_api.APIError,
             self.api.get, 'eve/Error')
@@ -124,9 +121,10 @@ class RequestsAPITestCase(unittest.TestCase):
         """Make sure that we don't try to call the API if the result is cached."""
         # mocked response is good now, with the error response cached.
         self.mock_sessions.post.return_value = DummyResponse(self.test_xml)
-        self.cache.get.return_value = self.error_xml
-        self.assertRaises(evelink_api.APIError,
-            self.api.get, 'foo/Bar', {'a':[1,2,3]})
+        with mock.patch.object(self.api.cache, 'get') as cache_get:
+            cache_get.return_value = self.error_xml
+            self.assertRaises(evelink_api.APIError,
+                self.api.get, 'foo/Bar', {'a':[1,2,3]})
 
         self.assertFalse(self.mock_sessions.post.called)
         self.assertEqual(self.api.last_timestamps, {

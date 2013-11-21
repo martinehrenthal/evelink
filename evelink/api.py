@@ -142,6 +142,9 @@ class APICache(object):
     def __init__(self):
         self.cache = {}
 
+    def cache_for(self, key):
+        return CacheContextManager(self, key, self.get(key))
+
     def get(self, key):
         """Return the value referred to by 'key' if it is cached.
 
@@ -169,6 +172,52 @@ class APICache(object):
         """
         expiration = time.time() + duration
         self.cache[key] = (value, expiration)
+
+
+class CacheContextManager(object):
+    """Helper to return the cached value or to set one if no value was found.
+    
+    """
+
+    def __init__(self, cache, key, initial_value, duration=None):
+        self.cache = cache
+        self._key = key
+        self.value = self._old_value = initial_value
+        self.duration = duration
+
+    def sync(self):
+        # the cache is set already
+        if self._old_value is not None:
+            return
+
+        # either the value or the duration missing;
+        # the cache value cannot be set
+        if self.duration is None or self.value is None:
+            return
+
+        self.cache.put(self._key, self.value, self.duration)
+        self._old_value = self.value
+
+    def set_duration(self, result):
+        """Set the duration from a result or an APIError.
+
+        """
+        if result.timestamp is None or result.expires is None:
+            return
+        self.duration = result.expires - result.timestamp
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is None:
+            self.sync()
+
+        if exc_type is not APIError:
+            return
+
+        self.set_duration(exc_value)
+        self.sync()
 
 
 class APIRequest(tuple):
@@ -316,23 +365,19 @@ class API(object):
 
         req = self.Request(self, path, params)
         key = self._cache_key(req)
-        response = self.cache.get(key)
-        cached = response is not None
-        if not cached:
-            # no cached response body found, call the API for one.
-            response = req.send(self)
-        else:
-            _log.debug("Cache hit, returning cached payload")
+        with self.cache.cache_for(key) as cached_req:
+            if not cached_req.value:
+                cached_req.value = req.send(self)
+            else:
+                _log.debug("Cache hit, returning cached payload")
 
-        tree = ElementTree.fromstring(response)
-        current_time = get_ts_value(tree, 'currentTime')
-        expires_time = get_ts_value(tree, 'cachedUntil')
+            tree = ElementTree.fromstring(cached_req.value)
+            current_time = get_ts_value(tree, 'currentTime')
+            expires_time = get_ts_value(tree, 'cachedUntil')
+            cached_req.duration = expires_time - current_time
+            # saving cache when exiting 
+        
         self._set_last_timestamps(current_time, expires_time)
-
-        if not cached:
-            # Have to split this up from above as timestamps have to be
-            # extracted.
-            self.cache.put(key, response, expires_time - current_time)
 
         error = tree.find('error')
         if error is not None:
