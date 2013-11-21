@@ -4,31 +4,28 @@ from google.appengine.ext import ndb
 from evelink import api
 import time
 
+class AppEngineAPIRequest(api.APIRequest):
+
+    def send(self, api):
+        result = urlfetch.fetch(
+                url=self.absolute_url,
+                payload=self.encoded_params,
+                method=urlfetch.POST if self.params else urlfetch.GET,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+                        if self.params else {}
+                )
+        return result.content
+
 
 class AppEngineAPI(api.API):
     """Subclass of api.API that is compatible with Google Appengine."""
+
+    Request = AppEngineAPIRequest
+    
     def __init__(self, base_url="api.eveonline.com", cache=None, api_key=None):
         cache = cache or AppEngineCache()
         super(AppEngineAPI, self).__init__(base_url=base_url,
                 cache=cache, api_key=api_key)
-
-    def send_request(self, url, params):
-        """Send a request via the urlfetch API.
-
-        url:
-            The url to fetch
-        params:
-            URL encoded parameters to send. If set, will use a form POST,
-            otherwise a GET.
-        """
-        result = urlfetch.fetch(
-                url=url,
-                payload=params,
-                method=urlfetch.POST if params else urlfetch.GET,
-                headers={'Content-Type': 'application/x-www-form-urlencoded'}
-                        if params else {}
-                )
-        return result.content
 
 
 class AppEngineCache(api.APICache):

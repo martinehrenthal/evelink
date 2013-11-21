@@ -33,8 +33,7 @@ class APITestCase(unittest.TestCase):
         self.cache = mock.MagicMock(spec=evelink_api.APICache)
         self.api = evelink_api.API(cache=self.cache)
         # force disable requests if enabled.
-        self._has_requests = evelink_api._has_requests
-        evelink_api._has_requests = False
+        self.api.Request = evelink_api.APIRequest
 
         self.test_xml = r"""
                 <?xml version='1.0' encoding='UTF-8'?>
@@ -62,32 +61,40 @@ class APITestCase(unittest.TestCase):
             """.strip()
 
     def tearDown(self):
-        evelink_api._has_requests = self._has_requests
+        pass
 
     def test_cache_key(self):
-        assert self.api._cache_key('foo/bar', {})
-        assert self.api._cache_key('foo/bar', {'baz': 'qux'})
+        req = evelink_api.APIRequest(self.api, 'foo/bar', {})
+        assert self.api._cache_key(req)
 
-        self.assertEqual(
-            self.api._cache_key('foo/bar', {'a':1, 'b':2}),
-            self.api._cache_key('foo/bar', {'b':2, 'a':1}),
-        )
+        req = evelink_api.APIRequest(self.api, 'foo/bar', {'baz': 'qux'})
+        assert self.api._cache_key(req)
+
+        req1 = evelink_api.APIRequest(self.api, 'foo/bar', {'a':1, 'b':2})
+        req2 = evelink_api.APIRequest(self.api, 'foo/bar', {'b':2, 'a':1})
+        self.assertEqual(self.api._cache_key(req1), self.api._cache_key(req2))
 
     def test_cache_key_variance(self):
         """Make sure that things which shouldn't have the same cache key don't."""
+        req1 = evelink_api.APIRequest(self.api, 'foo/bar', {'a':1})
+        req2 = evelink_api.APIRequest(self.api, 'foo/bar', {'b':2})
         self.assertNotEqual(
-            self.api._cache_key('foo/bar', {'a':1}),
-            self.api._cache_key('foo/bar', {'a':2}),
+            self.api._cache_key(req1),
+            self.api._cache_key(req2)
         )
 
+        req1 = evelink_api.APIRequest(self.api, 'foo/bar', {'a':1})
+        req2 = evelink_api.APIRequest(self.api, 'foo/bar', {'a':2})
         self.assertNotEqual(
-            self.api._cache_key('foo/bar', {'a':1}),
-            self.api._cache_key('foo/bar', {'b':1}),
+            self.api._cache_key(req1),
+            self.api._cache_key(req2)
         )
 
+        req1 = evelink_api.APIRequest(self.api, 'foo/bar', {})
+        req2 = evelink_api.APIRequest(self.api, 'foo/baz', {})
         self.assertNotEqual(
-            self.api._cache_key('foo/bar', {}),
-            self.api._cache_key('foo/baz', {}),
+            self.api._cache_key(req1),
+            self.api._cache_key(req2)
         )
 
     @mock.patch('urllib2.urlopen')
@@ -147,16 +154,15 @@ class APITestCase(unittest.TestCase):
         mock_urlopen.return_value = StringIO(self.test_xml)
         self.cache.get.return_value = None
 
-        api_key = (1, 'code')
-        api = evelink_api.API(cache=self.cache, api_key=api_key)
+        self.api.api_key = (1, 'code')
 
-        api.get('foo', {'a':[2,3,4]})
+        self.api.get('foo', {'a':[2,3,4]})
 
         # Make sure the api key id and verification code were passed
         self.assertEqual(mock_urlopen.mock_calls, [
                 mock.call(
                     'https://api.eveonline.com/foo.xml.aspx',
-                    'a=2%2C3%2C4&vCode=code&keyID=1',
+                    'a=2%2C3%2C4&keyID=1&vCode=code',
                 ),
             ])
 

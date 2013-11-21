@@ -2,6 +2,7 @@ import calendar
 import collections
 import functools
 import logging
+from operator import itemgetter
 import re
 import time
 from urllib import urlencode
@@ -170,6 +171,100 @@ class APICache(object):
         self.cache[key] = (value, expiration)
 
 
+class APIRequest(tuple):
+    """
+    Immutable representation of an api request.
+
+    """
+
+    def __new__(cls, api, path, params=None):
+        params = params or {}
+
+        for key in params:
+            params[key] = _clean(params[key])
+
+        _log.debug("Calling %s with params=%r", path, params)
+
+        if api.api_key:
+            _log.debug("keyID and vCode added")
+            params['keyID'] = api.api_key[0]
+            params['vCode'] = api.api_key[1]
+
+        return tuple.__new__(
+            cls, 
+            (
+                api.base_url,
+                path,
+                tuple(sorted(params.iteritems())),
+            )
+        )
+
+    base_url = property(itemgetter(0))
+    path = property(itemgetter(1))
+    params = property(itemgetter(2))
+
+
+    @property
+    def encoded_params(self):
+        return urlencode(self.params)
+
+    @property
+    def absolute_url(self):
+        return "https://%s/%s.xml.aspx" % (self.base_url, self.path)
+
+    def send(self, api):
+        """
+        Send the request and return the body as a string.
+
+        """
+        try:
+            if self.params:
+                # POST request
+                _log.debug("POSTing request")
+                r = urllib2.urlopen(self.absolute_url, self.encoded_params)
+            else:
+                # GET request
+                _log.debug("GETting request")
+                r = urllib2.urlopen(self.absolute_url)
+        except urllib2.HTTPError as r:
+            # urllib2 handles non-2xx responses by raising an exception that
+            # can also behave as a file-like object. The EVE API will return
+            # non-2xx HTTP codes on API errors (since Odyssey, apparently)
+            pass
+        except urllib2.URLError as e:
+            # TODO: Handle this better?
+            raise e
+        
+        try:
+            return r.read()
+        finally:
+            r.close()
+
+
+class APIRequestRequests(APIRequest):
+    
+    def send(self, api):
+        if api.session is None:
+            api.session = requests.Session()
+
+        try:
+            if self.params:
+                # POST request
+                _log.debug("POSTing request")
+                r = api.session.post(
+                    self.absolute_url,
+                    params=self.encoded_params
+                )
+            else:
+                # GET request
+                _log.debug("GETting request")
+                r = api.session.get(self.absolute_url)
+            return r.content
+        except requests.exceptions.RequestException as e:
+            # TODO: Handle this better?
+            raise e
+
+
 APIResult = collections.namedtuple("APIResult", [
         "result",
         "timestamp",
@@ -179,6 +274,11 @@ APIResult = collections.namedtuple("APIResult", [
 
 class API(object):
     """A wrapper around the EVE API."""
+
+    if _has_requests:
+        Request = APIRequestRequests
+    else:
+        Request = APIRequest
 
     def __init__(self, base_url="api.eveonline.com", cache=None, api_key=None):
         self.base_url = base_url
@@ -194,16 +294,17 @@ class API(object):
         self.api_key = api_key
         self._set_last_timestamps()
 
+        self.session = None
+
     def _set_last_timestamps(self, current_time=0, cached_until=0):
         self.last_timestamps = {
             'current_time': current_time,
             'cached_until': cached_until,
         }
 
-    def _cache_key(self, path, params):
-        sorted_params = sorted(params.iteritems())
+    def _cache_key(self, request):
         # Paradoxically, Shelve doesn't like integer keys.
-        return '%s-%s' % (self.CACHE_VERSION, hash((path, tuple(sorted_params))))
+        return '%s-%s' % (self.CACHE_VERSION, hash(request[1:]),)
 
     def get(self, path, params=None):
         """Request a specific path from the EVE API.
@@ -213,24 +314,13 @@ class API(object):
         of the API url in between the root / and the .xml bit.)
         """
 
-        params = params or {}
-        params = dict((k, _clean(v)) for k,v in params.iteritems())
-
-        _log.debug("Calling %s with params=%r", path, params)
-        if self.api_key:
-            _log.debug("keyID and vCode added")
-            params['keyID'] = self.api_key[0]
-            params['vCode'] = self.api_key[1]
-
-        key = self._cache_key(path, params)
+        req = self.Request(self, path, params)
+        key = self._cache_key(req)
         response = self.cache.get(key)
         cached = response is not None
-
         if not cached:
             # no cached response body found, call the API for one.
-            params = urlencode(params)
-            full_path = "https://%s/%s.xml.aspx" % (self.base_url, path)
-            response = self.send_request(full_path, params)
+            response = req.send(self)
         else:
             _log.debug("Cache hit, returning cached payload")
 
@@ -255,55 +345,6 @@ class API(object):
         result = tree.find('result')
         return APIResult(result, current_time, expires_time)
 
-    def send_request(self, full_path, params):
-        if _has_requests:
-            return self.requests_request(full_path, params)
-        else:
-            return self.urllib2_request(full_path, params)
-
-    def urllib2_request(self, full_path, params):
-        try:
-            if params:
-                # POST request
-                _log.debug("POSTing request")
-                r = urllib2.urlopen(full_path, params)
-            else:
-                # GET request
-                _log.debug("GETting request")
-                r = urllib2.urlopen(full_path)
-            result = r.read()
-            r.close()
-            return result
-        except urllib2.HTTPError as e:
-            # urllib2 handles non-2xx responses by raising an exception that
-            # can also behave as a file-like object. The EVE API will return
-            # non-2xx HTTP codes on API errors (since Odyssey, apparently)
-            result = e.read()
-            e.close()
-            return result
-        except urllib2.URLError as e:
-            # TODO: Handle this better?
-            raise e
-
-    def requests_request(self, full_path, params):
-        session = getattr(self, 'session', None)
-        if not session:
-            session = requests.Session()
-            self.session = session
-
-        try:
-            if params:
-                # POST request
-                _log.debug("POSTing request")
-                r = session.post(full_path, params=params)
-            else:
-                # GET request
-                _log.debug("GETting request")
-                r = session.get(full_path)
-            return r.content
-        except requests.exceptions.RequestException as e:
-            # TODO: Handle this better?
-            raise e
 
 def auto_api(func):
     """A decorator to automatically provide an API instance.
