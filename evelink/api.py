@@ -355,28 +355,19 @@ class API(object):
         # Paradoxically, Shelve doesn't like integer keys.
         return '%s-%s' % (self.CACHE_VERSION, hash(request[1:]),)
 
-    def get(self, path, params=None):
-        """Request a specific path from the EVE API.
+    def process_response(self, response):
+        """Extracts from an api response the result (as an ElementTree 
+        element), the currentTime and the cachedUntil (as a time stamp) 
+        elements.
 
-        The supplied path should be a slash-separated path
-        frament, e.g. "corp/AssetList". (Basically, the portion
-        of the API url in between the root / and the .xml bit.)
+        Raises an APIError if the API request failed (i.e. if the response 
+        has an error element).
+
         """
+        tree = ElementTree.fromstring(response)
+        current_time = get_ts_value(tree, 'currentTime')
+        expires_time = get_ts_value(tree, 'cachedUntil')
 
-        req = self.Request(self, path, params)
-        key = self._cache_key(req)
-        with self.cache.cache_for(key) as cached_req:
-            if not cached_req.value:
-                cached_req.value = req.send(self)
-            else:
-                _log.debug("Cache hit, returning cached payload")
-
-            tree = ElementTree.fromstring(cached_req.value)
-            current_time = get_ts_value(tree, 'currentTime')
-            expires_time = get_ts_value(tree, 'cachedUntil')
-            cached_req.duration = expires_time - current_time
-            # saving cache when exiting 
-        
         self._set_last_timestamps(current_time, expires_time)
 
         error = tree.find('error')
@@ -387,8 +378,29 @@ class API(object):
             _log.error("Raising API error: %r" % exc)
             raise exc
 
-        result = tree.find('result')
-        return APIResult(result, current_time, expires_time)
+        return APIResult(tree.find('result'), current_time, expires_time)
+
+    def get(self, path, params=None):
+        """Request a specific path from the EVE API.
+
+        The supplied path should be a slash-separated path
+        frament, e.g. "corp/AssetList". (Basically, the portion
+        of the API url in between the root / and the .xml bit.).
+
+        Raises an APIError if the API request failed.
+
+        """
+        req = self.Request(self, path, params)
+        with self.cache.cache_for(self._cache_key(req)) as response:
+            if not response.value:
+                response.value = req.send(self)
+            else:
+                _log.debug("Cache hit, returning cached payload")
+
+            result = self.process_response(response.value)
+            response.set_duration(result)
+
+        return result
 
 
 def auto_api(func):
