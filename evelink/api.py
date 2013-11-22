@@ -321,7 +321,10 @@ class API(object):
 
     def _cache_key(self, request):
         # Paradoxically, Shelve doesn't like integer keys.
-        return '%s-%s' % (self.CACHE_VERSION, hash(request[1:]),)
+        # TODO: add base_url to key?
+        return '%s-%s' % (
+            self.CACHE_VERSION, hash((request.path, request.params,)),
+        )
 
     def process_response(self, response):
         """Extracts from an api response the result (as an ElementTree 
