@@ -81,6 +81,7 @@ def elem_getters(elem):
     """Returns a tuple of (_str, _int, _float, _bool, _ts) functions.
 
     These are getters closed around the provided element.
+
     """
     _str = lambda key: get_named_value(elem, key)
     _int = lambda key: get_int_value(elem, key)
@@ -112,7 +113,6 @@ def parse_keyval_data(data_string):
 
 def parse_ms_date(date_string):
     """Convert MS date format into epoch"""
-
     return int(date_string)/10000000 - 11644473600;
 
 class APIError(Exception):
@@ -137,19 +137,39 @@ class APICache(object):
     This very basic implementation simply stores values in
     memory, with no other persistence. You can subclass it
     to define a more complex/featureful/persistent cache.
+
     """
 
     def __init__(self):
         self.cache = {}
 
     def cache_for(self, key):
+        """Returns a wrapper for the value referred to by 'key'.
+
+        The Wrapper has a 'value' and 'duration' properties, and a 
+        sync method.
+
+        if there was no value found in the cache for that key, the 
+        'value' and 'duration' properties can be set for the 'sync' 
+        method to save.
+
+        'sync' will have no effect if a value already existed or if 
+        the duration property is missing.
+
+        the wrapper behave as a context manager and will try to sync 
+        the value when the context exit. If the context exit on a 
+        raised APIError, it will try setting the duration from the 
+        exception properties.
+
+        """
         return CacheContextManager(self, key, self.get(key))
 
     def get(self, key):
         """Return the value referred to by 'key' if it is cached.
 
         key:
-            a result from the Python hash() function.
+            a str.
+
         """
         result = self.cache.get(key)
         if not result:
@@ -161,21 +181,24 @@ class APICache(object):
         return value
 
     def put(self, key, value, duration):
-        """Cache the provided value, referenced by 'key', for the given duration.
+        """Cache the provided value, referenced by 'key', 
+        for the given duration.
 
         key:
-            a result from the Python hash() function.
+            a str.
         value:
-            an xml.etree.ElementTree.Element object
+            a str (typically the body of the an api response).
         duration:
             a number of seconds before this cache entry should expire.
+
         """
         expiration = time.time() + duration
         self.cache[key] = (value, expiration)
 
 
 class CacheContextManager(object):
-    """Helper to return the cached value or to set one if no value was found.
+    """Wrapper for a cached value to help setting one if no value 
+    was found.
     
     """
 
@@ -199,9 +222,8 @@ class CacheContextManager(object):
         self._old_value = self.value
 
     def set_duration(self, result):
-        """Set the duration from a result or an APIError.
+        """Set the duration from a result or an APIError."""
 
-        """
         if result.timestamp is None or result.expires is None:
             return
         self.duration = result.expires - result.timestamp
@@ -214,6 +236,7 @@ class CacheContextManager(object):
             self.sync()
 
         if exc_type is not APIError:
+            # TODO: should it try to sync? duration could already be set
             return
 
         self.set_duration(exc_value)
@@ -221,12 +244,16 @@ class CacheContextManager(object):
 
 
 class APIRequest(tuple):
-    """
-    Immutable representation of an api request.
-
-    """
+    """Immutable representation of an api request."""
 
     def __new__(cls, api, path, params=None):
+        """Setup the request base_url, path and params (as sorted
+        tuple).
+
+        The api key parameters will be added to the ones provided if 
+        the 'api' has an 'api_key' property set.
+
+        """
         params = params or {}
 
         for key in params:
@@ -262,10 +289,7 @@ class APIRequest(tuple):
         return "https://%s/%s.xml.aspx" % (self.base_url, self.path)
 
     def send(self, api):
-        """
-        Send the request and return the body as a string.
-
-        """
+        """Send the request and return the body as a string."""
         try:
             if self.params:
                 # POST request
@@ -360,8 +384,8 @@ class API(object):
         element), the currentTime and the cachedUntil (as a time stamp) 
         elements.
 
-        Raises an APIError if the API request failed (i.e. if the response 
-        has an error element).
+        Raises an APIError if the API request failed (i.e. if the 
+        response has an error element).
 
         """
         tree = ElementTree.fromstring(response)
@@ -409,8 +433,8 @@ def auto_api(func):
     Functions decorated with this will have the api= kwarg
     automatically supplied with a default-initialized API()
     object if no other API object is supplied.
-    """
 
+    """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         if 'api' not in kwargs:
