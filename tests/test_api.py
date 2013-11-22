@@ -92,7 +92,8 @@ class APITestCase(unittest.TestCase):
     def setUp(self):
         self.api = evelink_api.API()
         # force disable requests if enabled.
-        self.api.Request = evelink_api.APIRequest
+        self._has_requests = evelink_api._has_requests
+        evelink_api._has_requests = False
 
         self.test_xml = r"""
                 <?xml version='1.0' encoding='UTF-8'?>
@@ -120,7 +121,7 @@ class APITestCase(unittest.TestCase):
             """.strip()
 
     def tearDown(self):
-        pass
+        evelink_api._has_requests = self._has_requests
 
     def test_cache_key(self):
         req = evelink_api.APIRequest(self.api, 'foo/bar', {})

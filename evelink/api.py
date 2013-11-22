@@ -288,55 +288,6 @@ class APIRequest(tuple):
     def absolute_url(self):
         return "https://%s/%s.xml.aspx" % (self.base_url, self.path)
 
-    def send(self, api):
-        """Send the request and return the body as a string."""
-        try:
-            if self.params:
-                # POST request
-                _log.debug("POSTing request")
-                r = urllib2.urlopen(self.absolute_url, self.encoded_params)
-            else:
-                # GET request
-                _log.debug("GETting request")
-                r = urllib2.urlopen(self.absolute_url)
-        except urllib2.HTTPError as r:
-            # urllib2 handles non-2xx responses by raising an exception that
-            # can also behave as a file-like object. The EVE API will return
-            # non-2xx HTTP codes on API errors (since Odyssey, apparently)
-            pass
-        except urllib2.URLError as e:
-            # TODO: Handle this better?
-            raise e
-        
-        try:
-            return r.read()
-        finally:
-            r.close()
-
-
-class APIRequestRequests(APIRequest):
-    
-    def send(self, api):
-        if api.session is None:
-            api.session = requests.Session()
-
-        try:
-            if self.params:
-                # POST request
-                _log.debug("POSTing request")
-                r = api.session.post(
-                    self.absolute_url,
-                    params=self.encoded_params
-                )
-            else:
-                # GET request
-                _log.debug("GETting request")
-                r = api.session.get(self.absolute_url)
-            return r.content
-        except requests.exceptions.RequestException as e:
-            # TODO: Handle this better?
-            raise e
-
 
 APIResult = collections.namedtuple("APIResult", [
         "result",
@@ -347,11 +298,6 @@ APIResult = collections.namedtuple("APIResult", [
 
 class API(object):
     """A wrapper around the EVE API."""
-
-    if _has_requests:
-        Request = APIRequestRequests
-    else:
-        Request = APIRequest
 
     def __init__(self, base_url="api.eveonline.com", cache=None, api_key=None):
         self.base_url = base_url
@@ -366,8 +312,6 @@ class API(object):
             raise ValueError("The provided API key must be a tuple of (keyID, vCode).")
         self.api_key = api_key
         self._set_last_timestamps()
-
-        self.session = None
 
     def _set_last_timestamps(self, current_time=0, cached_until=0):
         self.last_timestamps = {
@@ -414,10 +358,10 @@ class API(object):
         Raises an APIError if the API request failed.
 
         """
-        req = self.Request(self, path, params)
-        with self.cache.cache_for(self._cache_key(req)) as response:
+        request = APIRequest(self, path, params)
+        with self.cache.cache_for(self._cache_key(request)) as response:
             if not response.value:
-                response.value = req.send(self)
+                response.value = self.send_request(request)
             else:
                 _log.debug("Cache hit, returning cached payload")
 
@@ -425,6 +369,59 @@ class API(object):
             response.set_duration(result)
 
         return result
+
+    def send_request(self, request):
+        if _has_requests:
+            return self.requests_request(request)
+        else:
+            return self.urllib2_request(request)
+
+    def urllib2_request(self, req):
+        try:
+            if req.params:
+                # POST request
+                _log.debug("POSTing request")
+                r = urllib2.urlopen(req.absolute_url, req.encoded_params)
+            else:
+                # GET request
+                _log.debug("GETting request")
+                r = urllib2.urlopen(req.absolute_url)
+            result = r.read()
+            r.close()
+            return result
+        except urllib2.HTTPError as r:
+            # urllib2 handles non-2xx responses by raising an exception that
+            # can also behave as a file-like object. The EVE API will return
+            # non-2xx HTTP codes on API errors (since Odyssey, apparently)
+            pass
+        except urllib2.URLError as e:
+            # TODO: Handle this better?
+            raise e
+        
+        try:
+            return r.read()
+        finally:
+            r.close()
+
+    def requests_request(self, req):
+        session = getattr(self, 'session', None)
+        if not session:
+            session = requests.Session()
+            self.session = session
+
+        try:
+            if req.params:
+                # POST request
+                _log.debug("POSTing request")
+                r = session.post(req.absolute_url, params=req.encoded_params)
+            else:
+                # GET request
+                _log.debug("GETting request")
+                r = session.get(req.absolute_url)
+            return r.content
+        except requests.exceptions.RequestException as e:
+            # TODO: Handle this better?
+            raise e
 
 
 def auto_api(func):
