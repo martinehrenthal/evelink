@@ -283,13 +283,14 @@ class APIRequest(BaseAPIRequest):
         req = cls(api.base_url, path, params.iteritems())
 
         _log.debug(
-            "Created APIRequest(base_url=%r, path=$r, params=%r)",
+            "Created APIRequest(base_url=%r, path=%r, params=%r)",
             req.base_url,
             req.path,
             tuple(
                 (k, v if k != "vCode" else '*' * len(v),) 
                     for k, v in req.params
             )
+            
         )
 
         return req
