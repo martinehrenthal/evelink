@@ -259,12 +259,19 @@ class APIRequest(tuple):
         for key in params:
             params[key] = _clean(params[key])
 
-        _log.debug("Calling %s with params=%r", path, params)
-
         if api.api_key:
-            _log.debug("keyID and vCode added")
             params['keyID'] = api.api_key[0]
             params['vCode'] = api.api_key[1]
+
+        _log.debug(
+            "Created APIRequest(base_url=%r, path=$r, params=dict(%r))",
+            api.base_url,
+            path,
+            (
+                (k, v if k != "vCode" else '*' * len(v),) 
+                    for k, v in params.iteritems()
+            )
+        )
 
         return tuple.__new__(
             cls, 
