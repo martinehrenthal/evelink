@@ -234,9 +234,9 @@ class CacheContextManager(object):
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type is None:
             self.sync()
+            return
 
-        if exc_type is not APIError:
-            # TODO: should it try to sync? duration could already be set
+        if not issubclass(exc_type, APIError):
             return
 
         self.set_duration(exc_value)
