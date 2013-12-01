@@ -1,9 +1,11 @@
 import calendar
 import collections
 import functools
+import gzip
 import logging
 from operator import itemgetter
 import re
+from StringIO import StringIO
 import time
 from urllib import urlencode
 import urllib2
@@ -24,6 +26,16 @@ def _clean(v):
         return ",".join(str(i) for i in v)
     else:
         return str(v)
+
+def decompress(s):
+    """Decode a gzip compressed string."""
+    buf = StringIO(s)
+    f = gzip.GzipFile(fileobj=buf)
+    try:
+        return f.read()
+    finally:
+        f.close()
+        buf.close()
 
 
 def parse_ts(v):
@@ -399,14 +411,14 @@ class API(object):
             if req.params:
                 # POST request
                 _log.debug("POSTing request")
-                r = urllib2.urlopen(req.absolute_url, req.encoded_params)
+                req = urllib2.Request(req.absolute_url, data=req.encoded_params)
             else:
                 # GET request
+                req = urllib2.Request(req.absolute_url)
                 _log.debug("GETting request")
-                r = urllib2.urlopen(req.absolute_url)
-            result = r.read()
-            r.close()
-            return result
+
+            req.add_header('Accept-Encoding', 'gzip')
+            r = urllib2.urlopen(req)
         except urllib2.HTTPError as r:
             # urllib2 handles non-2xx responses by raising an exception that
             # can also behave as a file-like object. The EVE API will return
@@ -417,7 +429,10 @@ class API(object):
             raise e
         
         try:
-            return r.read()
+            if r.info().get('Content-Encoding') == 'gzip':
+                return decompress(r.read())
+            else:
+                return r.read()
         finally:
             r.close()
 
