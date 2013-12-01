@@ -124,34 +124,34 @@ class APITestCase(unittest.TestCase):
         evelink_api._has_requests = self._has_requests
 
     def test_cache_key(self):
-        req = evelink_api.APIRequest(self.api, 'foo/bar', {})
+        req = evelink_api.APIRequest.from_api(self.api, 'foo/bar', {})
         assert self.api._cache_key(req)
 
-        req = evelink_api.APIRequest(self.api, 'foo/bar', {'baz': 'qux'})
+        req = evelink_api.APIRequest.from_api(self.api, 'foo/bar', {'baz': 'qux'})
         assert self.api._cache_key(req)
 
-        req1 = evelink_api.APIRequest(self.api, 'foo/bar', {'a':1, 'b':2})
-        req2 = evelink_api.APIRequest(self.api, 'foo/bar', {'b':2, 'a':1})
+        req1 = evelink_api.APIRequest.from_api(self.api, 'foo/bar', {'a':1, 'b':2})
+        req2 = evelink_api.APIRequest.from_api(self.api, 'foo/bar', {'b':2, 'a':1})
         self.assertEqual(self.api._cache_key(req1), self.api._cache_key(req2))
 
     def test_cache_key_variance(self):
         """Make sure that things which shouldn't have the same cache key don't."""
-        req1 = evelink_api.APIRequest(self.api, 'foo/bar', {'a':1})
-        req2 = evelink_api.APIRequest(self.api, 'foo/bar', {'b':2})
+        req1 = evelink_api.APIRequest.from_api(self.api, 'foo/bar', {'a':1})
+        req2 = evelink_api.APIRequest.from_api(self.api, 'foo/bar', {'b':2})
         self.assertNotEqual(
             self.api._cache_key(req1),
             self.api._cache_key(req2)
         )
 
-        req1 = evelink_api.APIRequest(self.api, 'foo/bar', {'a':1})
-        req2 = evelink_api.APIRequest(self.api, 'foo/bar', {'a':2})
+        req1 = evelink_api.APIRequest.from_api(self.api, 'foo/bar', {'a':1})
+        req2 = evelink_api.APIRequest.from_api(self.api, 'foo/bar', {'a':2})
         self.assertNotEqual(
             self.api._cache_key(req1),
             self.api._cache_key(req2)
         )
 
-        req1 = evelink_api.APIRequest(self.api, 'foo/bar', {})
-        req2 = evelink_api.APIRequest(self.api, 'foo/baz', {})
+        req1 = evelink_api.APIRequest.from_api(self.api, 'foo/bar', {})
+        req2 = evelink_api.APIRequest.from_api(self.api, 'foo/baz', {})
         self.assertNotEqual(
             self.api._cache_key(req1),
             self.api._cache_key(req2)

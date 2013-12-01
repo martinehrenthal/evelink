@@ -243,12 +243,32 @@ class CacheContextManager(object):
         self.sync()
 
 
-class APIRequest(tuple):
+BaseAPIRequest = collections.namedtuple("BaseAPIRequest", [
+        "base_url",
+        "path",
+        "params",
+    ])
+
+
+class APIRequest(BaseAPIRequest):
     """Immutable representation of an api request."""
 
-    def __new__(cls, api, path, params=None):
-        """Setup the request base_url, path and params (as sorted
-        tuple).
+    def __new__(cls, base_url, path, params):
+        """Setup the request base_url, path and params (sorted 
+        and cleaned).
+
+        """
+        return BaseAPIRequest.__new__(
+            cls, 
+            base_url,
+            path,
+            tuple(sorted((k, _clean(v),) for k, v in params)),
+        )
+
+    @classmethod
+    def from_api(cls, api, path, params=None):
+        """Create a request from an API instance, a path and a dict of 
+        parameter.
 
         The api key parameters will be added to the ones provided if 
         the 'api' has an 'api_key' property set.
@@ -256,36 +276,23 @@ class APIRequest(tuple):
         """
         params = params or {}
 
-        for key in params:
-            params[key] = _clean(params[key])
-
         if api.api_key:
             params['keyID'] = api.api_key[0]
             params['vCode'] = api.api_key[1]
 
+        req = cls(api.base_url, path, params.iteritems())
+
         _log.debug(
-            "Created APIRequest(base_url=%r, path=$r, params=dict(%r))",
-            api.base_url,
-            path,
-            (
+            "Created APIRequest(base_url=%r, path=$r, params=%r)",
+            req.base_url,
+            req.path,
+            tuple(
                 (k, v if k != "vCode" else '*' * len(v),) 
-                    for k, v in params.iteritems()
+                    for k, v in req.params
             )
         )
 
-        return tuple.__new__(
-            cls, 
-            (
-                api.base_url,
-                path,
-                tuple(sorted(params.iteritems())),
-            )
-        )
-
-    base_url = property(itemgetter(0))
-    path = property(itemgetter(1))
-    params = property(itemgetter(2))
-
+        return req
 
     @property
     def encoded_params(self):
@@ -368,7 +375,7 @@ class API(object):
         Raises an APIError if the API request failed.
 
         """
-        request = APIRequest(self, path, params)
+        request = APIRequest.from_api(self, path, params)
         with self.cache.cache_for(self._cache_key(request)) as response:
             if not response.value:
                 response.value = self.send_request(request)
