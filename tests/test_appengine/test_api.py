@@ -1,5 +1,6 @@
 import mock
 import unittest2 as unittest
+from xml.etree import ElementTree as ET
 
 from tests.test_appengine import GAETestCase
 
@@ -210,6 +211,21 @@ class AppEngineAPITestCase(GAETestCase):
         self.assertEqual(api.last_timestamps, {
             'current_time': 1255885531,
             'cached_until': 1258563931,
+        })
+
+    def test_get_async_raise_api_error(self):
+        self.urlfetch_mock.set_return_values(
+            content=self.error_xml,
+            status_code=400
+        )
+
+        api = appengine.AppEngineAPI()
+
+        result = api.get_async('eve/Error')
+        self.assertRaises(APIError, result.get_result)
+        self.assertEqual(api.last_timestamps, {
+            'current_time': 1255885531,
+            'cached_until': 1258571131,
         })
 
 
