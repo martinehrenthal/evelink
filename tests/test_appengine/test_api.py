@@ -1,6 +1,5 @@
 import mock
 import unittest2 as unittest
-from xml.etree import ElementTree as ET
 
 from tests.test_appengine import GAETestCase
 

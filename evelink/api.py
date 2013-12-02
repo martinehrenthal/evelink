@@ -4,7 +4,6 @@ import functools
 import gzip
 import inspect
 import logging
-from operator import itemgetter
 import re
 from StringIO import StringIO
 import time
