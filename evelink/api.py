@@ -163,8 +163,7 @@ class APICache(object):
         'value' and 'duration' properties can be set for the 'sync' 
         method to save.
 
-        'sync' will have no effect if a value already existed or if 
-        the duration property is missing.
+        'sync' will have no effect if the duration property is missing.
 
         the wrapper behave as a context manager and will try to sync 
         the value when the context exit. If the context exit on a 
@@ -216,8 +215,8 @@ class CacheContextManager(object):
         self.duration = duration
 
     def sync(self):
-        # the cache is set already
-        if self._old_value is not None:
+        # the cache value is out of sync
+        if self.value == self._old_value:
             return
 
         # either the value or the duration missing;
