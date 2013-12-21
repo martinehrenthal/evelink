@@ -93,7 +93,6 @@ def elem_getters(elem):
     """Returns a tuple of (_str, _int, _float, _bool, _ts) functions.
 
     These are getters closed around the provided element.
-
     """
     _str = lambda key: get_named_value(elem, key)
     _int = lambda key: get_int_value(elem, key)
@@ -149,7 +148,6 @@ class APICache(object):
     This very basic implementation simply stores values in
     memory, with no other persistence. You can subclass it
     to define a more complex/featureful/persistent cache.
-
     """
 
     def __init__(self):
@@ -172,7 +170,6 @@ class APICache(object):
         the value when the context exit. If the context exit on a 
         raised APIError, it will try setting the duration from the 
         exception properties.
-
         """
         return CacheContextManager(self, key, self.get(key))
 
@@ -202,7 +199,6 @@ class APICache(object):
             a str (typically the body of the an api response).
         duration:
             a number of seconds before this cache entry should expire.
-
         """
         expiration = time.time() + duration
         self.cache[key] = (value, expiration)
@@ -211,7 +207,6 @@ class APICache(object):
 class CacheContextManager(object):
     """Wrapper for a cached value to help setting one if no value 
     was found.
-    
     """
 
     def __init__(self, cache, key, initial_value, duration=None):
@@ -268,7 +263,6 @@ class APIRequest(BaseAPIRequest):
     def __new__(cls, base_url, path, params):
         """Setup the request base_url, path and params (sorted 
         and cleaned).
-
         """
         return BaseAPIRequest.__new__(
             cls, 
@@ -284,7 +278,6 @@ class APIRequest(BaseAPIRequest):
 
         The api key parameters will be added to the ones provided if 
         the 'api' has an 'api_key' property set.
-
         """
         params = params or {}
 
@@ -360,7 +353,6 @@ class API(object):
 
         Raises an APIError if the API request failed (i.e. if the 
         response has an error element).
-
         """
         tree = ElementTree.fromstring(response)
         current_time = get_ts_value(tree, 'currentTime')
@@ -386,7 +378,6 @@ class API(object):
         of the API url in between the root / and the .xml bit.).
 
         Raises an APIError if the API request failed.
-
         """
         request = APIRequest.from_api(self, path, params)
         with self.cache.cache_for(self._cache_key(request)) as response:
@@ -463,7 +454,6 @@ def auto_api(func):
     Functions decorated with this will have the api= kwarg
     automatically supplied with a default-initialized API()
     object if no other API object is supplied.
-
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -497,7 +487,6 @@ def map_func_args(args, kw, args_names, defaults):
     defaults.
 
     Similar to inspect.getcallargs() but compatible with python 2.6.
-
     """
     if (len(args)+len(kw)) > len(args_names):
         raise TypeError('Too many arguments.')
@@ -541,7 +530,6 @@ class auto_call(object):
     - 'map_params': dictionary associating argument name to a 
     paramater name. They will be added to 'evelink.api._args_map' to 
     translate argument names to parameter names.
-
     """
     
     def __init__(self, path, prop_to_param=tuple(), map_params=None):
