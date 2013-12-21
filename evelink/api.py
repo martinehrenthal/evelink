@@ -291,7 +291,7 @@ class APIRequest(BaseAPIRequest):
             req.base_url,
             req.path,
             tuple(
-                (k, v if k != "vCode" else '*' * len(v),) 
+                (k, v if k != "vCode" else "(hidden value)",) 
                     for k, v in req.params
             )
             
